@@ -1,0 +1,3 @@
+[functions.admin-provision-user]
+verify_jwt = false
+entrypoint = "./functions/admin-provision-user/index.js"
