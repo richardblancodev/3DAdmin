@@ -124,7 +124,7 @@ export default function AdminModule({
         message.includes("Requested function was not found")
           ? "Supabase no encuentra la función admin-provision-user (HTTP 404). Debes desplegarla con Supabase CLI desde la carpeta del proyecto antes de invitar usuarios."
           : message.includes("Failed to send a request to the Edge Function")
-            ? "El navegador no pudo conectar con la función de Supabase. Revisa CORS/APP_ORIGIN, que la app use localhost:5173 o 127.0.0.1:5173 y vuelve a desplegar la función con la versión actual."
+            ? `El navegador no pudo conectar con la función de Supabase desde ${window.location.origin}. En Supabase configura APP_ORIGIN con ese origen (dominio y protocolo, sin ruta), confirma que la función admin-provision-user esté desplegada y vuelve a intentar. Para desarrollo local se permiten localhost:5173 y 127.0.0.1:5173.`
           : message,
       );
     } finally {

@@ -17,18 +17,29 @@ function respond(status, body, origin) {
   });
 }
 
+function normalizeOrigin(value) {
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (request) => {
-  const allowedOrigin = Deno.env.get("APP_ORIGIN");
+  const allowedOrigin = normalizeOrigin(Deno.env.get("APP_ORIGIN"));
   const requestOrigin = request.headers.get("Origin");
   const localDevOrigins = new Set([
     "http://localhost:5173",
     "http://127.0.0.1:5173",
   ]);
+  const normalizedRequestOrigin = normalizeOrigin(requestOrigin);
   const originIsAllowed =
-    requestOrigin &&
-    (requestOrigin === allowedOrigin || localDevOrigins.has(requestOrigin));
+    normalizedRequestOrigin &&
+    (normalizedRequestOrigin === allowedOrigin ||
+      localDevOrigins.has(normalizedRequestOrigin));
   const corsOrigin = originIsAllowed
-    ? requestOrigin
+    ? normalizedRequestOrigin
     : allowedOrigin ?? "http://localhost:5173";
 
   if (request.method === "OPTIONS") {
