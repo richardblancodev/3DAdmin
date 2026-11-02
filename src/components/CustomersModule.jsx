@@ -154,7 +154,7 @@ export default function CustomersModule() {
           <div className="table-scroll">
             <table>
               <thead>
-                <tr key={customer.id}>
+                <tr>
                   <th>Nombre</th>
                   <th>Correo</th>
                   <th>Teléfono</th>
@@ -164,7 +164,7 @@ export default function CustomersModule() {
               </thead>
               <tbody>
                 {customers.map((customer) => (
-                  <tr>
+                  <tr key={customer.id}>
                     <td>
                       <strong>{customer.name}</strong>
                     </td>
