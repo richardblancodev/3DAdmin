@@ -1,15 +1,22 @@
-import { useEffect, useMemo, useState } from "react";
-import { Save, SlidersHorizontal } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
 import {
   getPrinters,
   getWorkshopSettings,
   saveWorkshopSettings,
 } from "../services/business";
 import {
+  calculateVatAmount,
   defaultWorkshopSettings,
   estimatePrintCost,
   formatCurrency,
 } from "../utils/business";
+
+function nonNegativeAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.max(0, amount) : 0;
+}
+
 export default function CostCalculator({ rolls }) {
   const [settings, setSettings] = useState(defaultWorkshopSettings);
   const [printers, setPrinters] = useState([]);
@@ -22,6 +29,11 @@ export default function CostCalculator({ rolls }) {
   const [grams, setGrams] = useState(50);
   const [hours, setHours] = useState(2);
   const [postProcessingHours, setPostProcessingHours] = useState(0);
+  const [quantity, setQuantity] = useState(1);
+  const [includePackaging, setIncludePackaging] = useState(false);
+  const [packagingCost, setPackagingCost] = useState("");
+  const [otherExpenses, setOtherExpenses] = useState([]);
+  const nextExpenseId = useRef(0);
   const [marginPercent, setMarginPercent] = useState(
     defaultWorkshopSettings.default_margin_percent,
   );
@@ -70,6 +82,23 @@ export default function CostCalculator({ rolls }) {
     ],
   );
   const fmt = (amount) => formatCurrency(amount, settings.currency_code);
+  const packagingCostPerUnit = includePackaging
+    ? nonNegativeAmount(packagingCost)
+    : 0;
+  const describedExpenses = otherExpenses.filter(
+    (expense) => expense.description.trim(),
+  );
+  const otherExpensesPerUnit = describedExpenses.reduce(
+    (total, expense) => total + nonNegativeAmount(expense.amount),
+    0,
+  );
+  const unitCost =
+    estimate.totalCost + packagingCostPerUnit + otherExpensesPerUnit;
+  const unitSuggestedPrice = unitCost * (1 + marginPercent / 100);
+  const totalCost = unitCost * quantity;
+  const totalSuggestedPrice = unitSuggestedPrice * quantity;
+  const vatAmount = calculateVatAmount(totalSuggestedPrice, estimate.vatRate);
+  const totalPrice = totalSuggestedPrice + vatAmount;
   async function handleSettingsSubmit(event) {
     event.preventDefault();
     setSettingsBusy(true);
@@ -111,7 +140,8 @@ export default function CostCalculator({ rolls }) {
             <div>
               <h2>Calculadora</h2>
               <p className="muted">
-                Estimación por pieza según el consumo y el tiempo.
+                Los consumos y gastos se calculan por pieza y se multiplican
+                por la cantidad.
               </p>
             </div>
           </div>
@@ -126,7 +156,7 @@ export default function CostCalculator({ rolls }) {
                 {printers
                   .filter((printer) => printer.status !== "inactive")
                   .map((printer) => (
-                    <option value={printer.id}>
+                    <option key={printer.id} value={printer.id}>
                       {printer.name} · {printer.power_w} W
                     </option>
                   ))}
@@ -140,7 +170,7 @@ export default function CostCalculator({ rolls }) {
               >
                 <option value="">Selecciona una bobina</option>
                 {rolls.map((roll) => (
-                  <option value={roll.id}>
+                  <option key={roll.id} value={roll.id}>
                     {roll.brand} · {roll.material} · {roll.color}
                   </option>
                 ))}
@@ -168,6 +198,20 @@ export default function CostCalculator({ rolls }) {
                 />
               </label>
               <label>
+                Número de piezas
+                <input
+                  min="1"
+                  onChange={(event) =>
+                    setQuantity(
+                      Math.max(1, Math.floor(Number(event.target.value) || 1)),
+                    )
+                  }
+                  step="1"
+                  type="number"
+                  value={quantity}
+                />
+              </label>
+              <label>
                 Postprocesamiento / mano de obra (h)
                 <input
                   min="0"
@@ -179,7 +223,7 @@ export default function CostCalculator({ rolls }) {
                   value={postProcessingHours}
                 />
               </label>
-              <label className="span-two">
+              <label>
                 Margen de ganancia (%)
                 <input
                   min="0"
@@ -191,6 +235,112 @@ export default function CostCalculator({ rolls }) {
                   value={marginPercent}
                 />
               </label>
+            </div>
+            <div className="calculator-extra-costs">
+              <label className="checkbox-field">
+                <input
+                  checked={includePackaging}
+                  onChange={(event) =>
+                    setIncludePackaging(event.target.checked)
+                  }
+                  type="checkbox"
+                />
+                Agregar material de empaque
+              </label>
+              {includePackaging && (
+                <label>
+                  Costo de empaque por pieza ({settings.currency_code})
+                  <input
+                    min="0"
+                    onChange={(event) => setPackagingCost(event.target.value)}
+                    step="1"
+                    type="number"
+                    value={packagingCost}
+                  />
+                </label>
+              )}
+              <div className="calculator-extra-heading">
+                <strong>Otros gastos por pieza</strong>
+                <button
+                  className="button secondary"
+                  onClick={() =>
+                    setOtherExpenses((current) => [
+                      ...current,
+                      {
+                        id: ++nextExpenseId.current,
+                        description: "",
+                        amount: "",
+                      },
+                    ])
+                  }
+                  type="button"
+                >
+                  <Plus size={15} />
+                  Agregar gasto
+                </button>
+              </div>
+              {otherExpenses.length > 0 && (
+                <>
+                  {otherExpenses.map((expense, index) => (
+                    <div className="calculator-expense-row" key={expense.id}>
+                      <label>
+                        Descripción del gasto {index + 1}
+                        <input
+                          maxLength={120}
+                          onChange={(event) =>
+                            setOtherExpenses((current) =>
+                              current.map((item) =>
+                                item.id === expense.id
+                                  ? { ...item, description: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                          placeholder="Ej. Adhesivo, transporte…"
+                          value={expense.description}
+                        />
+                      </label>
+                      <label>
+                        Valor por pieza ({settings.currency_code})
+                        <input
+                          min="0"
+                          onChange={(event) =>
+                            setOtherExpenses((current) =>
+                              current.map((item) =>
+                                item.id === expense.id
+                                  ? { ...item, amount: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                          step="1"
+                          type="number"
+                          value={expense.amount}
+                        />
+                      </label>
+                      <button
+                        aria-label={`Quitar gasto ${index + 1}`}
+                        className="icon-button danger-icon"
+                        onClick={() =>
+                          setOtherExpenses((current) =>
+                            current.filter((item) => item.id !== expense.id),
+                          )
+                        }
+                        type="button"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                  <p className="muted">
+                    Los gastos sin descripción no se incluyen en el cálculo.
+                  </p>
+                </>
+              )}
+              <p className="muted">
+                Los gastos adicionales se aplican por pieza y solo se usan en
+                esta estimación.
+              </p>
             </div>
             {!selectedRoll && (
               <p className="message info">
@@ -221,27 +371,47 @@ export default function CostCalculator({ rolls }) {
               <span>Mano de obra / postprocesamiento</span>
               <strong>{fmt(estimate.laborCost)}</strong>
             </div>
+            {includePackaging && (
+              <div>
+                <span>Material de empaque por pieza</span>
+                <strong>{fmt(packagingCostPerUnit)}</strong>
+              </div>
+            )}
+            {describedExpenses.map((expense) => (
+              <div key={expense.id}>
+                <span>{expense.description} por pieza</span>
+                <strong>{fmt(nonNegativeAmount(expense.amount))}</strong>
+              </div>
+            ))}
             <div className="estimate-total">
-              <span>Costo estimado</span>
-              <strong>{fmt(estimate.totalCost)}</strong>
+              <span>Costo estimado por pieza</span>
+              <strong>{fmt(unitCost)}</strong>
+            </div>
+            <div className="estimate-total">
+              <span>Costo estimado · {quantity} piezas</span>
+              <strong>{fmt(totalCost)}</strong>
             </div>
             <div className="estimate-price">
               <span>
                 {settings.is_vat_responsible
-                  ? "Subtotal sugerido (sin IVA)"
-                  : "Precio sugerido"}
+                  ? "Precio sugerido por pieza (sin IVA)"
+                  : "Precio sugerido por pieza"}
               </span>
-              <strong>{fmt(estimate.suggestedPrice)}</strong>
+              <strong>{fmt(unitSuggestedPrice)}</strong>
+            </div>
+            <div className="estimate-price">
+              <span>Subtotal sugerido · {quantity} piezas</span>
+              <strong>{fmt(totalSuggestedPrice)}</strong>
             </div>
             {settings.is_vat_responsible && (
               <>
                 <div>
                   <span>IVA ({(estimate.vatRate * 100).toFixed(2)}%)</span>
-                  <strong>{fmt(estimate.vatAmount)}</strong>
+                  <strong>{fmt(vatAmount)}</strong>
                 </div>
                 <div className="estimate-price">
-                  <span>Total sugerido con IVA</span>
-                  <strong>{fmt(estimate.totalPrice)}</strong>
+                  <span>Total sugerido con IVA · {quantity} piezas</span>
+                  <strong>{fmt(totalPrice)}</strong>
                 </div>
               </>
             )}
